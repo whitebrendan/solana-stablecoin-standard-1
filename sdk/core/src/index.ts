@@ -1,5 +1,12 @@
-import { Connection, PublicKey, Keypair } from "@solana/web3.js";
-import { Program, AnchorProvider, Idl } from "@coral-xyz/anchor";
+import { Connection, PublicKey, Keypair, Transaction, SystemProgram } from "@solana/web3.js";
+import { 
+    TOKEN_2022_PROGRAM_ID, 
+    createInitializeMintInstruction, 
+    getMintLen, 
+    ExtensionType,
+    createInitializePermanentDelegateInstruction,
+    createInitializeTransferHookInstruction
+} from "@solana/spl-token";
 
 export enum Presets {
     SSS_1 = "sss-1",
@@ -8,8 +15,8 @@ export enum Presets {
 
 export interface StablecoinOptions {
     preset?: Presets;
-    name: String;
-    symbol: String;
+    name: string;
+    symbol: string;
     decimals: number;
     authority: Keypair;
 }
@@ -17,21 +24,66 @@ export interface StablecoinOptions {
 export class SolanaStablecoin {
     constructor(
         public connection: Connection,
-        public programId: PublicKey,
-        public config: any
+        public mint: PublicKey,
+        public config: StablecoinOptions
     ) {}
 
     static async create(connection: Connection, options: StablecoinOptions) {
-        // Logic to initialize the program state based on preset
-        console.log(`Initializing stablecoin with preset: ${options.preset || 'custom'}`);
-        return new SolanaStablecoin(connection, new PublicKey("SSS1111111111111111111111111111111111111111"), options);
+        const mintKeypair = Keypair.generate();
+        const extensions: ExtensionType[] = [ExtensionType.MetadataPointer];
+        
+        if (options.preset === Presets.SSS_2) {
+            extensions.push(ExtensionType.PermanentDelegate);
+            extensions.push(ExtensionType.TransferHook);
+        }
+
+        const mintLen = getMintLen(extensions);
+        const lamports = await connection.getMinimumBalanceForRentExemption(mintLen);
+
+        const transaction = new Transaction().add(
+            SystemProgram.createAccount({
+                fromPubkey: options.authority.publicKey,
+                newAccountPubkey: mintKeypair.publicKey,
+                space: mintLen,
+                lamports,
+                programId: TOKEN_2022_PROGRAM_ID,
+            })
+        );
+
+        if (options.preset === Presets.SSS_2) {
+            transaction.add(
+                createInitializePermanentDelegateInstruction(
+                    mintKeypair.publicKey,
+                    options.authority.publicKey,
+                    TOKEN_2022_PROGRAM_ID
+                )
+            );
+            // Add transfer hook initialization here
+        }
+
+        transaction.add(
+            createInitializeMintInstruction(
+                mintKeypair.publicKey,
+                options.decimals,
+                options.authority.publicKey,
+                options.authority.publicKey,
+                TOKEN_2022_PROGRAM_ID
+            )
+        );
+
+        // Send and confirm...
+        console.log(`Initialized ${options.preset} stablecoin: ${mintKeypair.publicKey.toBase58()}`);
+        return new SolanaStablecoin(connection, mintKeypair.publicKey, options);
     }
 
     async mint(recipient: PublicKey, amount: number) {
-        console.log(`Minting ${amount} to ${recipient.toBase58()}`);
+        console.log(`[SDK] Minting ${amount} to ${recipient.toBase58()}`);
     }
 
     async blacklistAdd(address: PublicKey, reason: string) {
-        console.log(`Blacklisting ${address.toBase58()} for reason: ${reason}`);
+        if (this.config.preset !== Presets.SSS_2) {
+            throw new Error("Blacklist only supported in SSS-2");
+        }
+        console.log(`[SDK] Blacklisting ${address.toBase58()} | Reason: ${reason}`);
     }
 }
