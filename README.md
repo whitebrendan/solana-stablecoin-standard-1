@@ -1,3 +1,4 @@
+# SoroSave (Legacy)
 # Solana Stablecoin Standard (SSS)
 
 This repository contains the core standards, SDK, and on-chain programs for deploying and managing stablecoins on Solana using Token-2022 extensions.
@@ -13,13 +14,24 @@ This repository contains the core standards, SDK, and on-chain programs for depl
 - **Use Case:** Regulated assets (USDC/USDT class).
 
 ## Structure
-- `programs/`: Anchor programs (SSS Core & Transfer Hook).
-- `sdk/`: TypeScript SDK and Admin CLI.
-- `backend/`: Indexer and Mint/Burn services.
-- `docs/`: Technical specifications and operator guides.
+- `programs/sss-token/`: Core logic for minting, roles, and blacklisting.
+- `programs/sss-transfer-hook/`: Transfer hook for mandatory blacklist enforcement.
+- `sdk/core/`: TypeScript library for protocol interaction.
+- `sdk/cli/`: Admin command line tool.
+- `backend/service/`: API for coordinating mint/burn and compliance.
+- `docs/`: ARCHITECTURE.md, OPERATIONS.md, SSS-1.md, SSS-2.md.
 
 ## Quick Start
 ```bash
-npm install @stbr/sss-token
-sss-token init --preset sss-1 --name "MyStable" --symbol "MST"
+# 1. Initialize stablecoin with SSS-2 (Compliant) preset
+sss-token init --preset sss-2 --name "EuroStable" --symbol "EURS"
+
+# 2. Add an address to blacklist
+sss-token blacklist add <BAD_ACTOR_PUBKEY> --reason "Suspicious activity"
+
+# 3. Seize funds from blacklisted account to treasury
+sss-token seize <BAD_ACTOR_PUBKEY> --to <TREASURY_PUBKEY> --amount 1000
 ```
+
+## Built for Superteam Brazil
+Developed as part of the open-source Solana Stablecoin Standard initiative.
