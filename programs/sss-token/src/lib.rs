@@ -1,13 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
-    token_2022::spl_token_2022::{
-        extension::{
-            permanent_delegate::PermanentDelegate,
-            transfer_hook::TransferHook,
-            metadata_pointer::MetadataPointer,
-        },
-        instruction::AuthorityType,
-    },
+    token_2022::{self, MintTo, Burn, TransferChecked},
     token_interface::{Mint, TokenAccount, Token2022},
 };
 
@@ -28,7 +21,6 @@ pub mod sss_token {
         state.paused = false;
         state.mint = ctx.accounts.mint.key();
         
-        // Roles initialization
         state.roles.master = ctx.accounts.authority.key();
         state.roles.minter = ctx.accounts.authority.key();
         state.roles.blacklister = ctx.accounts.authority.key();
@@ -40,8 +32,16 @@ pub mod sss_token {
         let state = &ctx.accounts.state;
         require!(!state.paused, SSSCoreError::ContractPaused);
         require!(ctx.accounts.authority.key() == state.roles.minter, SSSCoreError::Unauthorized);
-        
-        // CPI to Token-2022 MintTo
+
+        let cpi_accounts = MintTo {
+            mint: ctx.accounts.mint.to_account_info(),
+            to: ctx.accounts.recipient.to_account_info(),
+            authority: ctx.accounts.authority.to_account_info(),
+        };
+        let cpi_program = ctx.accounts.token_program.to_account_info();
+        let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
+        token_2022::mint_to(cpi_ctx, amount)?;
+
         Ok(())
     }
 
@@ -49,7 +49,15 @@ pub mod sss_token {
         let state = &ctx.accounts.state;
         require!(!state.paused, SSSCoreError::ContractPaused);
         
-        // CPI to Token-2022 Burn
+        let cpi_accounts = Burn {
+            mint: ctx.accounts.mint.to_account_info(),
+            from: ctx.accounts.from.to_account_info(),
+            authority: ctx.accounts.authority.to_account_info(),
+        };
+        let cpi_program = ctx.accounts.token_program.to_account_info();
+        let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
+        token_2022::burn(cpi_ctx, amount)?;
+
         Ok(())
     }
 
@@ -58,7 +66,21 @@ pub mod sss_token {
         require!(state.enable_permanent_delegate, SSSCoreError::FeatureNotEnabled);
         require!(ctx.accounts.authority.key() == state.roles.master, SSSCoreError::Unauthorized);
         
-        // Use Permanent Delegate to move funds from blacklisted account to treasury
+        let cpi_accounts = TransferChecked {
+            from: ctx.accounts.from.to_account_info(),
+            mint: ctx.accounts.mint.to_account_info(),
+            to: ctx.accounts.treasury.to_account_info(),
+            authority: ctx.accounts.permanent_delegate.to_account_info(),
+        };
+        let cpi_program = ctx.accounts.token_program.to_account_info();
+        let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
+        token_2022::transfer_checked(cpi_ctx, amount, state.decimals)?;
+
+        Ok(())
+    }
+
+    pub fn update_roles(ctx: Context<UpdateState>, roles: Roles) -> Result<()> {
+        ctx.accounts.state.roles = roles;
         Ok(())
     }
 
@@ -67,7 +89,7 @@ pub mod sss_token {
         Ok(())
     }
 
-    pub fn add_to_blacklist(ctx: Context<UpdateBlacklist>, address: Pubkey) -> Result<()> {
+    pub fn add_to_blacklist(ctx: Context<UpdateBlacklist>, _address: Pubkey) -> Result<()> {
         let state = &ctx.accounts.state;
         require!(ctx.accounts.authority.key() == state.roles.blacklister, SSSCoreError::Unauthorized);
         let blacklist_item = &mut ctx.accounts.blacklist_item;
@@ -146,20 +168,41 @@ pub struct UpdateBlacklist<'info> {
 
 #[derive(Accounts)]
 pub struct MintTokens<'info> {
+    #[account(has_one = mint)]
     pub state: Account<'info, GlobalState>,
+    #[account(mut)]
+    pub mint: InterfaceAccount<'info, Mint>,
+    #[account(mut)]
+    pub recipient: InterfaceAccount<'info, TokenAccount>,
     pub authority: Signer<'info>,
+    pub token_program: Program<'info, Token2022>,
 }
 
 #[derive(Accounts)]
 pub struct BurnTokens<'info> {
+    #[account(has_one = mint)]
     pub state: Account<'info, GlobalState>,
+    #[account(mut)]
+    pub mint: InterfaceAccount<'info, Mint>,
+    #[account(mut)]
+    pub from: InterfaceAccount<'info, TokenAccount>,
     pub authority: Signer<'info>,
+    pub token_program: Program<'info, Token2022>,
 }
 
 #[derive(Accounts)]
 pub struct SeizeTokens<'info> {
+    #[account(has_one = mint)]
     pub state: Account<'info, GlobalState>,
+    #[account(mut)]
+    pub mint: InterfaceAccount<'info, Mint>,
+    #[account(mut)]
+    pub from: InterfaceAccount<'info, TokenAccount>,
+    #[account(mut)]
+    pub treasury: InterfaceAccount<'info, TokenAccount>,
+    pub permanent_delegate: Signer<'info>,
     pub authority: Signer<'info>,
+    pub token_program: Program<'info, Token2022>,
 }
 
 #[error_code]
